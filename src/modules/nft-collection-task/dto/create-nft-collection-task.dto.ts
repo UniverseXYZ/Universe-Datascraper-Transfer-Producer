@@ -13,7 +13,7 @@ export class TaskPerBlock {
 
 export interface QueueMessageBody {
   contractAddress: string;
-  tokenType: 'ERC721' | 'ERC1155';
+  tokenType: string;
   startBlock: number;
   endBlock: number;
 }

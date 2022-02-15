@@ -8,7 +8,6 @@ import { NFTCollectionTaskService } from '../nft-collection-task/nft-collection-
 import { NFTCollectionService } from '../nft-collection/nft-collection.service';
 import { EthereumService } from '../ethereum/ethereum.service';
 import {
-  CreateNFTCollectionTaskDto,
   QueueMessageBody,
   TaskPerBlock,
 } from '../nft-collection-task/dto/create-nft-collection-task.dto';
@@ -17,6 +16,9 @@ import {
 export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
   public sqsProducer: Producer;
   private readonly logger = new Logger(SqsProducerService.name);
+  private readonly blockInterval: number;
+  private readonly messageNum: number;
+  private readonly stopSendBlock: number;
 
   constructor(
     private configService: ConfigService,
@@ -29,6 +31,9 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
       accessKeyId: this.configService.get('aws.accessKeyId'),
       secretAccessKey: this.configService.get('aws.secretAccessKey'),
     });
+    this.blockInterval = this.configService.get('queue_config.block_interval');
+    this.messageNum = this.configService.get('queue_config.message_num');
+    this.stopSendBlock = this.configService.get('queue_config.end_block');
   }
 
   public onModuleInit() {
@@ -39,7 +44,7 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
   }
 
   /**
-   * #1. check if there is any collection not processed
+   * #1. check if there is any collection not finished yet (lastProcessedBlock < currentBlock)
    * #2. split to tasks and send to queue
    * #3. save tasks to DB
    * #4. mark collection as processed
@@ -47,64 +52,61 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
   @Cron(CronExpression.EVERY_5_SECONDS)
   public async checkCollection() {
     // Check if there is any unprocessed collection
-    const unprocessed = await this.nftCollectionService.findUnprocessedOne();
+    const currentBlock =
+      this.stopSendBlock ?? (await this.ethereumService.getBlockNum());
+
+    const unprocessed = await this.nftCollectionService.findUnfinishedOne(
+      currentBlock,
+    );
     if (!unprocessed) {
       return;
     }
     this.logger.log(
-      `[CRON Collection] Recevied new NFT collection: ${unprocessed.contractAddress}`,
+      `[CRON Collection ${unprocessed.contractAddress}] Find Unfinished collection. Already processed to ${unprocessed.lastProcessedBlock}. Current configured end block: ${currentBlock}`,
     );
-    this.nftCollectionService.markAsChecked(unprocessed.contractAddress);
+    this.nftCollectionService.markAsProcessing(unprocessed.contractAddress);
 
     // Prepare tasks
-    const currentBlock = 12981360; //await this.ethereumService.getBlockNum();
-    const tasks = this.eventlySpace(
+    const startBlock =
+      unprocessed.lastProcessedBlock ?? unprocessed.createdAtBlock;
+    let endBlock = startBlock + this.blockInterval * this.messageNum;
+    endBlock = endBlock >= currentBlock ? currentBlock : endBlock;
+    const tasks = this.eventlySpaceByStep(
       unprocessed.contractAddress,
       unprocessed.tokenType,
-      unprocessed.createdAtBlock,
-      currentBlock,
-      200,
+      startBlock,
+      endBlock,
+      this.blockInterval,
+    );
+    this.logger.log(
+      `[CRON Collection ${unprocessed.contractAddress}] Generated ${tasks.length} tasks between block [${startBlock} - ${endBlock}] with block interval ${this.blockInterval}`,
     );
 
     // Prepare queue messages and sent as batch
-    const messages: Message<QueueMessageBody>[] = tasks.map((task) => {
-      const id = `${unprocessed.contractAddress}-${task.startBlock}-${task.endBlock}`;
-      return {
-        id,
-        body: task,
-        groupId: unprocessed.contractAddress,
-        deduplicationId: id,
-      };
-    });
-    const queueResults = await this.sendMessage(messages);
-    this.logger.log(
-      `[CRON Collection] Successfully sent ${queueResults.length} messages for collection ${unprocessed.contractAddress}`,
-    );
-
-    // Prepare collection tasks to save to DB as batch
-    // const collectionTasks: CreateNFTCollectionTaskDto[] = tasks.map(
-    //   (task, index) => ({
-    //     messageId: queueResults[index].MessageId,
-    //     contractAddress: task.contractAddress,
-    //     tokenType: task.tokenType,
-    //     startBlock: task.startBlock,
-    //     endBlock: task.endBlock,
-    //     status: 'sent',
-    //   }),
-    // );
-    // const taskResults = await this.nftCollectionTaskService.batchInsert(
-    //   collectionTasks,
-    // );
-    // this.logger.log(
-    //   `[CRON Collection] Successfully saved ${taskResults.length} tasks for collection ${unprocessed.contractAddress}`,
-    // );
+    if (tasks.length > 0) {
+      const messages: Message<QueueMessageBody>[] = tasks.map((task) => {
+        const id = `${unprocessed.contractAddress}-${task.startBlock}-${task.endBlock}`;
+        return {
+          id,
+          body: task,
+          groupId: unprocessed.contractAddress,
+          deduplicationId: id,
+        };
+      });
+      const queueResults = await this.sendMessage(messages);
+      this.logger.log(
+        `[CRON Collection ${unprocessed.contractAddress}] Successfully sent ${queueResults.length} messages for collection`,
+      );
+    }
 
     // Mark this collection
     await this.nftCollectionService.markAsProcessed(
       unprocessed.contractAddress,
+      unprocessed.createdAtBlock,
+      endBlock,
     );
     this.logger.log(
-      `[CRON Collection] Successfully processed collection ${unprocessed.contractAddress}`,
+      `[CRON Collection ${unprocessed.contractAddress}] Successfully processed collection to block ${endBlock}`,
     );
   }
 
@@ -126,7 +128,7 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
     );
 
     // Prepare tasks
-    const tasks = this.eventlySpace(
+    const tasks = this.eventlySpaceByCardinality(
       unprocessed.contractAddress,
       unprocessed.tokenType,
       unprocessed.startBlock,
@@ -150,26 +152,8 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
       `[CRON Task] Successfully sent ${queueResults.length} messages for collection ${unprocessed.contractAddress}`,
     );
 
-    // Prepare collection tasks to save to DB as batch
-    // const collectionTasks: CreateNFTCollectionTaskDto[] = tasks.map(
-    //   (task, index) => ({
-    //     messageId: queueResults[index].MessageId,
-    //     contractAddress: task.contractAddress,
-    //     tokenType: task.tokenType,
-    //     startBlock: task.startBlock,
-    //     endBlock: task.endBlock,
-    //     status: 'sent',
-    //   }),
-    // );
-    // const taskResults = await this.nftCollectionTaskService.batchInsert(
-    //   collectionTasks,
-    // );
-    // this.logger.log(
-    //   `[CRON Task] Successfully saved ${taskResults.length} tasks for collection ${unprocessed.contractAddress}`,
-    // );
-
     // Mark this collection
-    await this.nftCollectionTaskService.deleteOne(unprocessed.id);
+    await this.nftCollectionTaskService.deleteOne(unprocessed.messageId);
     this.logger.log(
       `[CRON Task] Successfully deleted task ${unprocessed.contractAddress} from block ${unprocessed.startBlock} to ${unprocessed.endBlock}`,
     );
@@ -187,9 +171,40 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
     return tasks;
   }
 
-  private eventlySpace(
+  private eventlySpaceByStep(
     address: string,
-    type: 'ERC721' | 'ERC1155',
+    type: string,
+    startBlock: number,
+    endBlock: number,
+    step = 10,
+  ) {
+    const tasks: QueueMessageBody[] = [];
+    const cardinality = Math.round((endBlock - startBlock) / step);
+    if (cardinality <= 0) {
+      tasks.push({
+        startBlock,
+        endBlock,
+        tokenType: type,
+        contractAddress: address,
+      });
+      return tasks;
+    }
+    for (let i = 0; i < cardinality; i++) {
+      const endNum = startBlock + (i + 1) * step;
+      const startNum = startBlock + i * step;
+      tasks.push({
+        startBlock: i === 0 ? startNum : startNum + 1,
+        endBlock: endNum >= endBlock ? endBlock : endNum,
+        tokenType: type,
+        contractAddress: address,
+      });
+    }
+    return tasks;
+  }
+
+  private eventlySpaceByCardinality(
+    address: string,
+    type: string,
     startBlock: number,
     endBlock: number,
     cardinality = 10,
