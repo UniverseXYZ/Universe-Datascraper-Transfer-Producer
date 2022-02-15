@@ -17,4 +17,9 @@ export default () => ({
     queueUrl: process.env.AWS_QUEUE_URL,
   },
   etherscan_api_key: process.env.ETHERSCAN_API_KEY,
+  queue_config: {
+    block_interval: process.env.BLOCKS_INTERVAL,
+    message_num: process.env.MESSAGES_PER_PROCESS,
+    end_block: process.env.END_BLOCK,
+  },
 });

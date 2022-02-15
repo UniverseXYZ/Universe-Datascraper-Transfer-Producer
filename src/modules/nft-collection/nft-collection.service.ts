@@ -15,40 +15,49 @@ export class NFTCollectionService {
     private readonly nftCollectionModel: Model<NFTCollectionDocument>,
   ) {}
 
-  public async findUnprocessedOne() {
+  // public async findUnprocessedOne() {
+  //   return await this.nftCollectionModel.findOne({
+  //     sentAt: null,
+  //     isProcessing: false,
+  //   });
+  // }
+
+  public async findUnfinishedOne(currentBlock: number) {
     return await this.nftCollectionModel.findOne({
-      sentAt: null,
-      firstCheckAt: null,
+      isProcessing: { $in: [null, false] },
+      $or: [
+        { lastProcessedBlock: { $lt: currentBlock } },
+        { lastProcessedBlock: { $exists: false } },
+      ],
     });
   }
 
-  public async markAsChecked(contractAddress: string) {
+  public async markAsProcessing(contractAddress: string) {
     await this.nftCollectionModel.updateOne(
       {
         contractAddress,
       },
       {
-        firstCheckAt: new Date(),
+        isProcessing: true,
       },
     );
   }
 
-  public async markAsProcessed(contractAddress: string) {
+  public async markAsProcessed(
+    contractAddress: string,
+    firstProcessedBlock: number,
+    lastProcessedBlock: number,
+  ) {
     await this.nftCollectionModel.updateOne(
       {
         contractAddress,
       },
       {
         sentAt: new Date(),
+        firstProcessedBlock,
+        lastProcessedBlock,
+        isProcessing: false,
       },
     );
-  }
-
-  public async insertOne() {
-    // this.NFTCollectionModel.insertMany({
-    //   contractAddress: '0xccc441ac31f02cd96c153db6fd5fe0a2f4e6a68d',
-    //   tokenType: 'ERC721',
-    //   createdAtBlock: 12966912,
-    // });
   }
 }

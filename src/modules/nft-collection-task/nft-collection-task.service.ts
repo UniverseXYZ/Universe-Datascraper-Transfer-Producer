@@ -42,7 +42,7 @@ export class NFTCollectionTaskService {
     });
   }
 
-  public async deleteOne(id) {
-    await this.nftCollectionTaskModel.deleteOne({ id });
+  public async deleteOne(messageId: string) {
+    await this.nftCollectionTaskModel.deleteOne({ messageId });
   }
 }
