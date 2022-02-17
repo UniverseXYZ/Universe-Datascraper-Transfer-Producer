@@ -23,13 +23,19 @@ export class NFTCollectionService {
   // }
 
   public async findUnfinishedOne(currentBlock: number) {
-    return await this.nftCollectionModel.findOne({
-      isProcessing: { $in: [null, false] },
-      $or: [
-        { lastProcessedBlock: { $lt: currentBlock } },
-        { lastProcessedBlock: { $exists: false } },
-      ],
-    });
+    return await this.nftCollectionModel.findOne(
+      {
+        isProcessing: { $in: [null, false] },
+        $or: [
+          { lastProcessedBlock: { $lt: currentBlock } },
+          { lastProcessedBlock: { $exists: false } },
+        ],
+      },
+      {},
+      {
+        sort: { lastProcessedBlock: 1 },
+      },
+    );
   }
 
   public async markAsProcessing(contractAddress: string) {

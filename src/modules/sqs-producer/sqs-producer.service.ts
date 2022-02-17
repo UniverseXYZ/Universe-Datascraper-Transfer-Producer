@@ -11,6 +11,7 @@ import {
   QueueMessageBody,
   TaskPerBlock,
 } from '../nft-collection-task/dto/create-nft-collection-task.dto';
+import R from 'ramda';
 
 @Injectable()
 export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
@@ -67,8 +68,9 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
     this.nftCollectionService.markAsProcessing(unprocessed.contractAddress);
 
     // Prepare tasks
-    const startBlock =
-      unprocessed.lastProcessedBlock ?? unprocessed.createdAtBlock;
+    const startBlock = R.is(Number, unprocessed.lastProcessedBlock)
+      ? unprocessed.lastProcessedBlock + 1
+      : unprocessed.createdAtBlock;
     let endBlock = startBlock + this.blockInterval * this.messageNum;
     endBlock = endBlock >= currentBlock ? currentBlock : endBlock;
     const tasks = this.eventlySpaceByStep(
