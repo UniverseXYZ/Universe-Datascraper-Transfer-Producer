@@ -50,7 +50,7 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
    * #3. save tasks to DB
    * #4. mark collection as processed
    */
-  @Cron(CronExpression.EVERY_5_SECONDS)
+  @Cron('*/2 * * * * *')
   public async checkCollection() {
     // Check if there is any unprocessed collection
     const currentBlock =

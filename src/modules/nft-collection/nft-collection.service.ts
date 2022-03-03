@@ -26,6 +26,7 @@ export class NFTCollectionService {
     return await this.nftCollectionModel.findOne(
       {
         isProcessing: { $in: [null, false] },
+        createdAtBlock: { $exists: true },
         $or: [
           { lastProcessedBlock: { $lt: currentBlock } },
           { lastProcessedBlock: { $exists: false } },
