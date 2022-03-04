@@ -13,15 +13,18 @@ export class EthereumService {
     const projectSecret = this.configService.get('infura.project_secret');
     const projectId = this.configService.get('infura.project_id');
 
-    if (!projectSecret || !projectId) {
-      throw new Error('Infura project id or secret is not defined');
-    }
+    const alchemy_token = this.configService.get('alchemy_token')
 
+    if (!projectSecret || !projectId || !alchemy_token) {
+      throw new Error('Infura project id or secret or alchemy token is not defined');
+    }
     const ethersProvider = ethers.getDefaultProvider(EthereumNetworkType[key], {
       infura: {
         projectId,
         projectSecret,
       },
+      alchemy: alchemy_token,
+      quorum: 1
     });
     this.ether = ethersProvider;
   }
