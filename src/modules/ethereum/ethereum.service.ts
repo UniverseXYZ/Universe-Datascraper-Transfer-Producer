@@ -34,7 +34,7 @@ export class EthereumService {
     this.ether = ethersProvider;
   }
 
-  public async getBlockNum(){
+  public async getBlockNum() {
     return this.ether.getBlockNumber();
   }
 }
