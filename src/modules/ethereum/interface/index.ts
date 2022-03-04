@@ -6,3 +6,14 @@ export enum EthereumNetworkType {
 }
 
 export type NetworkType = keyof typeof EthereumNetworkType;
+
+export type InfuraProject = {
+  projectId: string;
+  projectSecret: string;
+};
+
+export type ProviderOptions = {
+  quorum: number;
+  alchemy: string;
+  infura: InfuraProject
+};
