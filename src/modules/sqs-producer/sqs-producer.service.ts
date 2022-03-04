@@ -20,6 +20,7 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
   private readonly blockInterval: number;
   private readonly messageNum: number;
   private readonly stopSendBlock: number;
+  private readonly isVip: boolean = false;
 
   constructor(
     private configService: ConfigService,
@@ -35,6 +36,10 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
     this.blockInterval = this.configService.get('queue_config.block_interval');
     this.messageNum = this.configService.get('queue_config.message_num');
     this.stopSendBlock = this.configService.get('queue_config.end_block');
+    const queueUrl = this.configService.get('aws.queueUrl');
+    if (queueUrl.includes('monitor')) {
+      this.isVip = true;
+    }
   }
 
   public onModuleInit() {
@@ -58,6 +63,7 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
 
     const unprocessed = await this.nftCollectionService.findUnfinishedOne(
       currentBlock,
+      this.isVip,
     );
     if (!unprocessed) {
       return;

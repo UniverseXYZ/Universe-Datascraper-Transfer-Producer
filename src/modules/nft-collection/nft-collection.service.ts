@@ -15,16 +15,10 @@ export class NFTCollectionService {
     private readonly nftCollectionModel: Model<NFTCollectionDocument>,
   ) {}
 
-  // public async findUnprocessedOne() {
-  //   return await this.nftCollectionModel.findOne({
-  //     sentAt: null,
-  //     isProcessing: false,
-  //   });
-  // }
-
-  public async findUnfinishedOne(currentBlock: number) {
+  public async findUnfinishedOne(currentBlock: number, isVip: boolean) {
     return await this.nftCollectionModel.findOne(
       {
+        vip: isVip ? true : { $in: [null, false] },
         isProcessing: { $in: [null, false] },
         createdAtBlock: { $exists: true },
         $or: [
