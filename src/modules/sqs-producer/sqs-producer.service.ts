@@ -71,7 +71,9 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
     this.logger.log(
       `[CRON Collection ${unprocessed.contractAddress}] Find Unfinished collection. Already processed to ${unprocessed.lastProcessedBlock}. Current configured end block: ${currentBlock}`,
     );
-    this.nftCollectionService.markAsProcessing(unprocessed.contractAddress);
+    await this.nftCollectionService.markAsProcessing(
+      unprocessed.contractAddress,
+    );
 
     // Prepare tasks
     const startBlock = R.is(Number, unprocessed.lastProcessedBlock)
@@ -123,7 +125,7 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
    * #1. find all expired sendings
    * TODO: consider to remove the isProcessing flag
    */
-  @Cron('*/10 * * * * *')
+  @Cron(new Date(Date.now() + 10 * 1000))
   public async resetIsprocessing() {
     // only apply on VIP
     if (!this.isVip) {
