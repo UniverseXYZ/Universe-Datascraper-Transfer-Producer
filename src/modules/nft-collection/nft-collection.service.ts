@@ -33,6 +33,38 @@ export class NFTCollectionService {
     );
   }
 
+  public async findExpiredOnes(): Promise<string[]> {
+    const results = await this.nftCollectionModel.find(
+      {
+        sentAt: { $lt: new Date(Date.now() - 60 * 1000) },
+        vip: true,
+        isProcessing: true,
+      },
+      {
+        contractAddress: 1,
+      },
+    );
+
+    return results.map((result) => result.contractAddress);
+  }
+
+  public async resetExpiredOnes(contractAddresses: string[]) {
+    return await this.nftCollectionModel.bulkWrite(
+      contractAddresses.map((contractAddress) => ({
+        updateOne: {
+          filter: {
+            contractAddress,
+          },
+          update: {
+            $set: {
+              isProcessing: false,
+            },
+          },
+        },
+      })),
+    );
+  }
+
   public async markAsProcessing(contractAddress: string) {
     await this.nftCollectionModel.updateOne(
       {

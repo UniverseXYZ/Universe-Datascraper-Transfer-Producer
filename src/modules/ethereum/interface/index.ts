@@ -15,5 +15,5 @@ export type InfuraProject = {
 export type ProviderOptions = {
   quorum: number;
   alchemy: string;
-  infura: InfuraProject
+  infura: InfuraProject;
 };

@@ -119,6 +119,29 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
   }
 
   /**
+   * [Only for VIP] Reset isProcessing to false for expired collections
+   * #1. find all expired sendings
+   * TODO: consider to remove the isProcessing flag
+   */
+  @Cron('*/10 * * * * *')
+  public async resetIsprocessing() {
+    // only apply on VIP
+    if (!this.isVip) {
+      return;
+    }
+
+    const expiredAddresses = await this.nftCollectionService.findExpiredOnes();
+    if (!expiredAddresses || expiredAddresses.length === 0) {
+      return;
+    }
+
+    this.logger.log(
+      `[CRON Rest] Reset isProcessing for ${expiredAddresses.length} collections`,
+    );
+    await this.nftCollectionService.resetExpiredOnes(expiredAddresses);
+  }
+
+  /**
    * #1. check if there is any task need to be splited
    * #2. split to 2 tasks and send to queue
    * #3. save 2 new tasks to DB
