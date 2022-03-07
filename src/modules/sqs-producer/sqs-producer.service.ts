@@ -160,13 +160,16 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
       `[CRON Task] Find one task need to be splited: ${unprocessed.contractAddress} from block ${unprocessed.startBlock} to ${unprocessed.endBlock}`,
     );
 
+    const isSingleTask =
+      unprocessed.startBlock === unprocessed.endBlock ||
+      unprocessed.endBlock - unprocessed.startBlock === 1;
     // Prepare tasks
     const tasks = this.eventlySpaceByCardinality(
       unprocessed.contractAddress,
       unprocessed.tokenType,
       unprocessed.startBlock,
       unprocessed.endBlock,
-      2,
+      isSingleTask ? 1 : 2,
     );
 
     // Prepare queue messages and sent as batch
