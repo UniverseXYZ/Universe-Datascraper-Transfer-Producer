@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Producer } from 'sqs-producer';
 import AWS from 'aws-sdk';
+import { v4 as uuidv4 } from 'uuid';
 import { Message, SqsProducerHandler } from './sqs-producer.types';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -29,9 +30,9 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
     private readonly ethereumService: EthereumService,
   ) {
     AWS.config.update({
-      region: this.configService.get('aws.region'),
-      accessKeyId: this.configService.get('aws.accessKeyId'),
-      secretAccessKey: this.configService.get('aws.secretAccessKey'),
+      region: this.configService.get('aws.region') || 'us-east-1',
+      accessKeyId: this.configService.get('aws.accessKeyId') || '',
+      secretAccessKey: this.configService.get('aws.secretAccessKey') || '',
     });
     this.blockInterval = this.configService.get('queue_config.block_interval');
     this.messageNum = this.configService.get('queue_config.message_num');
@@ -99,7 +100,7 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
         return {
           id,
           body: task,
-          groupId: unprocessed.contractAddress,
+          groupId: uuidv4(),
           deduplicationId: id,
         };
       });
@@ -178,7 +179,7 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
       return {
         id,
         body: task,
-        groupId: unprocessed.contractAddress,
+        groupId: uuidv4(),
         deduplicationId: id,
       };
     });
@@ -274,6 +275,6 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
       };
     });
 
-    return await this.sqsProducer.send(messages as any[]);
+    return await this.sqsProducer.send(messages as Message[]);
   }
 }
