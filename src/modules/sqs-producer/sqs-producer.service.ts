@@ -128,11 +128,6 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
    */
   @Cron(new Date(Date.now() + 10 * 1000))
   public async resetIsprocessing() {
-    // only apply on VIP
-    if (!this.isVip) {
-      return;
-    }
-
     const expiredAddresses = await this.nftCollectionService.findExpiredOnes();
     if (!expiredAddresses || expiredAddresses.length === 0) {
       return;

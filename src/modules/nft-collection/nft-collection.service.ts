@@ -37,7 +37,6 @@ export class NFTCollectionService {
     const results = await this.nftCollectionModel.find(
       {
         sentAt: { $lt: new Date(Date.now() - 60 * 1000) },
-        vip: true,
         isProcessing: true,
       },
       {
