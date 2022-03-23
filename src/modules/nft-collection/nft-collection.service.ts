@@ -24,6 +24,7 @@ export class NFTCollectionService {
         $or: [
           { lastProcessedBlock: { $lt: currentBlock } },
           { lastProcessedBlock: { $exists: false } },
+          { $where: 'this.lastProcessedBlock < this.targetBlock' },
         ],
       },
       {},
