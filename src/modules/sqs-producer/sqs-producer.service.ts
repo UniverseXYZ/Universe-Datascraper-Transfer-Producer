@@ -59,29 +59,34 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
   @Cron('*/2 * * * * *')
   public async checkCollection() {
     // Check if there is any unprocessed collection
-    const currentBlock =
+    let finalEndBlock =
       this.stopSendBlock ?? (await this.ethereumService.getBlockNum());
 
     const unprocessed = await this.nftCollectionService.findUnfinishedOne(
-      currentBlock,
+      finalEndBlock,
       this.isVip,
     );
     if (!unprocessed) {
       return;
     }
     this.logger.log(
-      `[CRON Collection ${unprocessed.contractAddress}] Find Unfinished collection. Already processed to ${unprocessed.lastProcessedBlock}. Current configured end block: ${currentBlock}`,
+      `[CRON Collection ${unprocessed.contractAddress}] Find Unfinished collection. Already processed to ${unprocessed.lastProcessedBlock}. Current configured end block: ${finalEndBlock}`,
     );
     await this.nftCollectionService.markAsProcessing(
       unprocessed.contractAddress,
     );
+
+    // check if got target block
+    if (unprocessed.targetBlock) {
+      finalEndBlock = unprocessed.targetBlock;
+    }
 
     // Prepare tasks
     const startBlock = R.is(Number, unprocessed.lastProcessedBlock)
       ? unprocessed.lastProcessedBlock + 1
       : unprocessed.createdAtBlock;
     let endBlock = startBlock + this.blockInterval * this.messageNum;
-    endBlock = endBlock >= currentBlock ? currentBlock : endBlock;
+    endBlock = endBlock >= finalEndBlock ? finalEndBlock : endBlock;
     const tasks = this.eventlySpaceByStep(
       unprocessed.contractAddress,
       unprocessed.tokenType,
@@ -115,6 +120,7 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
       unprocessed.contractAddress,
       unprocessed.createdAtBlock,
       endBlock,
+      endBlock === finalEndBlock,
     );
     this.logger.log(
       `[CRON Collection ${unprocessed.contractAddress}] Successfully processed collection to block ${endBlock}`,

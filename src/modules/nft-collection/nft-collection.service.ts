@@ -24,7 +24,7 @@ export class NFTCollectionService {
         $or: [
           { lastProcessedBlock: { $lt: currentBlock } },
           { lastProcessedBlock: { $exists: false } },
-          { $where: 'this.lastProcessedBlock < this.targetBlock' },
+          { targetBlock: { $exists: true } },
         ],
       },
       {},
@@ -80,17 +80,35 @@ export class NFTCollectionService {
     contractAddress: string,
     firstProcessedBlock: number,
     lastProcessedBlock: number,
+    isFinished: boolean,
   ) {
-    await this.nftCollectionModel.updateOne(
-      {
-        contractAddress,
-      },
-      {
-        sentAt: new Date(),
-        firstProcessedBlock,
-        lastProcessedBlock,
-        isProcessing: false,
-      },
-    );
+    if (isFinished) {
+      await this.nftCollectionModel.updateOne(
+        {
+          contractAddress,
+        },
+        {
+          sentAt: new Date(),
+          firstProcessedBlock,
+          lastProcessedBlock,
+          isProcessing: false,
+          $unset: {
+            targetBlock: '',
+          },
+        },
+      );
+    } else {
+      await this.nftCollectionModel.updateOne(
+        {
+          contractAddress,
+        },
+        {
+          sentAt: new Date(),
+          firstProcessedBlock,
+          lastProcessedBlock,
+          isProcessing: false,
+        },
+      );
+    }
   }
 }
