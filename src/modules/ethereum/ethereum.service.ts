@@ -32,8 +32,15 @@ export class EthereumService {
     const chainStackProvider: ethers.providers.JsonRpcProvider = chainstackUrl
       ? new ethers.providers.JsonRpcProvider(chainstackUrl, network)
       : undefined;
+    
+    
+    const quicknodeUrl: string = this.configService.get('quicknode_url');
+    const quicknodeProvider: ethers.providers.JsonRpcProvider = quicknodeUrl
+      ? new ethers.providers.JsonRpcProvider(quicknodeUrl, network)
+      : undefined;
 
-    if (!infuraProvider && !alchemyProvider && !chainStackProvider) {
+
+    if (!infuraProvider && !alchemyProvider && !chainStackProvider && !quicknodeProvider) {
       throw new Error(
         'Infura project id and secret or alchemy token or chainstack url is not defined',
       );
@@ -43,6 +50,7 @@ export class EthereumService {
       infuraProvider,
       alchemyProvider,
       chainStackProvider,
+      quicknodeProvider,
     ];
     const definedProviders: ethers.providers.BaseProvider[] =
       allProviders.filter((x) => x !== undefined);
