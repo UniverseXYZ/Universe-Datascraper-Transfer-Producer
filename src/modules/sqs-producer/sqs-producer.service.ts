@@ -67,6 +67,7 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
       this.isVip,
     );
     if (!unprocessed) {
+      this.logger.log("[CRON Task] Didn't find unprocessed blocks. Skipping iteration")
       return;
     }
     this.logger.log(
@@ -156,6 +157,8 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
     // Check if there is any unprocessed collection
     const unprocessed = await this.nftCollectionTaskService.findSplitOne();
     if (!unprocessed) {
+      this.logger.log("[CRON Task] Didn't find unprocessed blocks. Skipping iteration")
+
       return;
     }
     this.logger.log(
