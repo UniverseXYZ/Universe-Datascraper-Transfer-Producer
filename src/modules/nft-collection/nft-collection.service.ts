@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { unfold } from 'ramda';
 import {
   NFTCollection,
   NFTCollectionDocument,
@@ -15,20 +16,25 @@ export class NFTCollectionService {
     private readonly nftCollectionModel: Model<NFTCollectionDocument>,
   ) {}
 
-  public async findUnfinishedOne(currentBlock: number, isVip: boolean) {
-    return await this.nftCollectionModel.findOne(
+  public async findUnfinished(
+    currentBlock: number,
+    isVip: boolean,
+    limit: number,
+  ) {
+    return await this.nftCollectionModel.find(
       {
-        vip: isVip ? true : { $in: [null, false] },
-        isProcessing: { $in: [null, false] },
-        createdAtBlock: { $exists: true },
+        vip: isVip ? true : { $in: [null, false] }, // null
+        isProcessing: { $in: [null, false] }, // false
+        createdAtBlock: { $exists: true }, //10052240
         $or: [
-          { lastProcessedBlock: { $lt: currentBlock } },
+          { lastProcessedBlock: { $lt: currentBlock } }, // 10313929
           { lastProcessedBlock: { $exists: false } },
           { targetBlock: { $exists: true } },
         ],
       },
       {},
       {
+        limit,
         sort: { lastProcessedBlock: 1 },
       },
     );
@@ -65,50 +71,66 @@ export class NFTCollectionService {
     );
   }
 
-  public async markAsProcessing(contractAddress: string) {
-    await this.nftCollectionModel.updateOne(
-      {
-        contractAddress,
-      },
-      {
-        isProcessing: true,
-      },
+  public async markAsProcessing(unprocessed: any[]) {
+    await this.nftCollectionModel.bulkWrite(
+      unprocessed.map((x) => ({
+        updateOne: {
+          filter: {
+            contractAddress: x.contractAddress,
+          },
+          update: { isProcessing: true },
+        },
+      })),
     );
   }
 
-  public async markAsProcessed(
-    contractAddress: string,
-    firstProcessedBlock: number,
-    lastProcessedBlock: number,
-    isFinished: boolean,
-  ) {
-    if (isFinished) {
-      await this.nftCollectionModel.updateOne(
-        {
+  public async markAsProcessed(processed: any[]) {
+    await this.nftCollectionModel.bulkWrite(
+      processed.map((collection) => {
+        const {
           contractAddress,
-        },
-        {
-          sentAt: new Date(),
           firstProcessedBlock,
           lastProcessedBlock,
-          isProcessing: false,
-          $unset: {
-            targetBlock: '',
+          isFinished,
+        } = collection;
+
+        if (isFinished) {
+          return {
+            updateOne: {
+              filter: {
+                contractAddress,
+              },
+              update: {
+                $set: {
+                  sentAt: new Date(),
+                  firstProcessedBlock,
+                  lastProcessedBlock,
+                  isProcessing: false,
+                },
+                $unset: {
+                  targetBlock: '',
+                },
+              },
+              upsert: false,
+            },
+          };
+        }
+
+        return {
+          updateOne: {
+            filter: {
+              contractAddress,
+            },
+            update: {
+              sentAt: new Date(),
+              firstProcessedBlock,
+              lastProcessedBlock,
+              isProcessing: false,
+            },
+            upsert: false,
           },
-        },
-      );
-    } else {
-      await this.nftCollectionModel.updateOne(
-        {
-          contractAddress,
-        },
-        {
-          sentAt: new Date(),
-          firstProcessedBlock,
-          lastProcessedBlock,
-          isProcessing: false,
-        },
-      );
-    }
+        };
+      }),
+    );
   }
 }

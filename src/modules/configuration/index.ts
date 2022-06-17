@@ -26,4 +26,5 @@ export default () => ({
     message_num: process.env.MESSAGES_PER_PROCESS,
     end_block: process.env.END_BLOCK,
   },
+  query_limit: process.env.QUERY_LIMIT,
 });
