@@ -13,6 +13,7 @@ import {
   TaskPerBlock,
 } from '../nft-collection-task/dto/create-nft-collection-task.dto';
 import R from 'ramda';
+import { Utils } from 'src/utils';
 
 @Injectable()
 export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
@@ -22,6 +23,8 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
   private readonly messageNum: number;
   private readonly stopSendBlock: number;
   private readonly isVip: boolean = false;
+  private isProcessing: boolean = false;
+  private skippingCounter: number = 0;
   private readonly queryLimit: number;
 
   constructor(
@@ -59,8 +62,30 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
    * #3. save tasks to DB
    * #4. mark collection as processed
    */
-  @Cron('*/5 * * * * *')
+  @Cron('*/2 * * * * *')
   public async checkCollection() {
+    if (this.isProcessing) {
+      if (
+        this.skippingCounter <
+        Number(this.configService.get('skippingCounterLimit'))
+      ) {
+        this.skippingCounter++;
+        this.logger.log(
+          `[CRON Transfer Task] Task is in process, skipping (${this.skippingCounter}) ...`,
+        );
+      } else {
+        // when the counter reaches the limit, restart the pod.
+        this.logger.log(
+          `[CRON Transfer Task] Task skipping counter reached its limit. The process is not responsive, restarting...`,
+        );
+        Utils.shutdown();
+      }
+
+      return;
+    }
+
+    this.isProcessing = true;
+
     // Check if there is any unprocessed collection
     let finalEndBlock =
       this.stopSendBlock ?? (await this.ethereumService.getBlockNum());
@@ -75,6 +100,7 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
       this.logger.log(
         "[CRON Task] Didn't find unprocessed blocks. Skipping iteration",
       );
+      this.isProcessing = false;
       return;
     }
     this.logger.log(
@@ -144,6 +170,8 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
     // this.logger.log(
     //   `[CRON Collection ${unprocessedCollection.contractAddress}] Successfully processed collection to block ${endBlock}`,
     // );
+    this.isProcessing = false;
+    this.skippingCounter = 0;
   }
 
   /**
