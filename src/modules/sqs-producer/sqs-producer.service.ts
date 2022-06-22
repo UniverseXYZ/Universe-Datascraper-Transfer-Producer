@@ -26,6 +26,7 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
   private isProcessing: boolean = false;
   private skippingCounter: number = 0;
   private readonly queryLimit: number;
+  private readonly source: string;
 
   constructor(
     private configService: ConfigService,
@@ -42,9 +43,14 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
     this.messageNum = this.configService.get('queue_config.message_num');
     this.stopSendBlock = this.configService.get('queue_config.end_block');
     this.queryLimit = Number(this.configService.get('query_limit')) || 1;
+    this.source = this.configService.get('source');
+
+    if (this.source !== 'ARCHIVE' && this.source !== 'MONITOR') {
+      throw new Error(`SOURCE has invalid value(${this.source})`);
+    }
 
     const queueUrl = this.configService.get('aws.queueUrl');
-    if (queueUrl.includes('monitor')) {
+    if (queueUrl.includes('-vip')) {
       this.isVip = true;
     }
   }
@@ -94,6 +100,7 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
       finalEndBlock,
       this.isVip,
       this.queryLimit,
+      this.source,
     );
 
     if (!unprocessed || unprocessed.length === 0) {
@@ -181,7 +188,9 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
    */
   @Cron(new Date(Date.now() + 10 * 1000))
   public async resetIsprocessing() {
-    const expiredAddresses = await this.nftCollectionService.findExpiredOnes();
+    const expiredAddresses = await this.nftCollectionService.findExpiredOnes(
+      this.source,
+    );
     if (!expiredAddresses || expiredAddresses.length === 0) {
       return;
     }
@@ -201,7 +210,9 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
   @Cron(CronExpression.EVERY_5_SECONDS)
   public async checkCollectionTask() {
     // Check if there is any unprocessed collection
-    const unprocessed = await this.nftCollectionTaskService.findSplitOne();
+    const unprocessed = await this.nftCollectionTaskService.findSplitOne(
+      this.source,
+    );
     if (!unprocessed) {
       this.logger.log(
         "[CRON Task] Didn't find blocks for splitting. Skipping iteration",
@@ -217,6 +228,7 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
       unprocessed.startBlock === unprocessed.endBlock ||
       unprocessed.endBlock - unprocessed.startBlock === 1;
     // Prepare tasks
+
     const tasks = this.eventlySpaceByCardinality(
       unprocessed.contractAddress,
       unprocessed.tokenType,

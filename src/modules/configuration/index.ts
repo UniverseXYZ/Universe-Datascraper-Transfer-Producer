@@ -28,4 +28,5 @@ export default () => ({
   },
   query_limit: process.env.QUERY_LIMIT,
   skippingCounterLimit: process.env.SKIPPING_COUNTER_LIMIT,
+  source: process.env.SOURCE,
 });

@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { unfold } from 'ramda';
 import {
   NFTCollection,
   NFTCollectionDocument,
@@ -20,31 +19,36 @@ export class NFTCollectionService {
     currentBlock: number,
     isVip: boolean,
     limit: number,
+    source: string,
   ) {
-    return await this.nftCollectionModel.find(
-      {
-        vip: isVip ? true : { $in: [null, false] }, // null
-        isProcessing: { $in: [null, false] }, // false
-        createdAtBlock: { $exists: true }, //10052240
-        $or: [
-          { lastProcessedBlock: { $lt: currentBlock } }, // 10313929
-          { lastProcessedBlock: { $exists: false } },
-          { targetBlock: { $exists: true } },
-        ],
-      },
-      {},
-      {
-        limit,
-        sort: { lastProcessedBlock: 1 },
-      },
-    );
+    return await this.nftCollectionModel
+      .find(
+        {
+          source,
+          vip: isVip ? true : { $in: [null, false] },
+          isProcessing: { $in: [null, false] },
+          createdAtBlock: { $exists: true },
+          $or: [
+            { lastProcessedBlock: { $lt: currentBlock } },
+            { lastProcessedBlock: { $exists: false } },
+            { targetBlock: { $exists: true } },
+          ],
+        },
+        {},
+        {
+          limit,
+          sort: { lastProcessedBlock: 1 },
+        },
+      )
+      .lean();
   }
 
-  public async findExpiredOnes(): Promise<string[]> {
+  public async findExpiredOnes(source: string): Promise<string[]> {
     const results = await this.nftCollectionModel.find(
       {
         sentAt: { $lt: new Date(Date.now() - 60 * 1000) },
         isProcessing: true,
+        source: source === 'MONITOR' ? { $in: [null, 'MONITOR'] } : 'ARCHIVE',
       },
       {
         contractAddress: 1,
