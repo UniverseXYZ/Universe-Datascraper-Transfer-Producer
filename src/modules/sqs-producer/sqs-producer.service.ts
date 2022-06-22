@@ -53,8 +53,6 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
     if (queueUrl.includes('-vip')) {
       this.isVip = true;
     }
-
-    this.checkBackwardCollection();
   }
 
   public onModuleInit() {
@@ -194,7 +192,7 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
    * #3. save tasks to DB
    * #4. mark collection as processed
    */
-  // @Cron('*/2 * * * * *')
+  @Cron('*/2 * * * * *')
   public async checkBackwardCollection() {
     if (this.source.toLowerCase() !== 'archive') {
       return;
