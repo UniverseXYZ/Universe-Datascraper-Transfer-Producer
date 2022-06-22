@@ -26,6 +26,7 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
   private isProcessing: boolean = false;
   private skippingCounter: number = 0;
   private readonly queryLimit: number;
+  private readonly source: string;
 
   constructor(
     private configService: ConfigService,
@@ -42,9 +43,14 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
     this.messageNum = this.configService.get('queue_config.message_num');
     this.stopSendBlock = this.configService.get('queue_config.end_block');
     this.queryLimit = Number(this.configService.get('query_limit')) || 1;
+    this.source = this.configService.get('source');
+
+    if (this.source !== 'ARCHIVE' && this.source !== 'MONITOR') {
+      throw new Error(`SOURCE has invalid value(${this.source})`);
+    }
 
     const queueUrl = this.configService.get('aws.queueUrl');
-    if (queueUrl.includes('monitor')) {
+    if (queueUrl.includes('-vip')) {
       this.isVip = true;
     }
   }
@@ -63,8 +69,13 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
    * #4. mark collection as processed
    */
   @Cron('*/2 * * * * *')
-  public async checkCollection() {
+  public async checkForwardCollection() {
+    if (this.source.toLowerCase() !== 'monitor') {
+      return;
+    }
+
     if (this.isProcessing) {
+      // Forward flow
       if (
         this.skippingCounter <
         Number(this.configService.get('skippingCounterLimit'))
@@ -90,11 +101,12 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
     let finalEndBlock =
       this.stopSendBlock ?? (await this.ethereumService.getBlockNum());
 
-    const unprocessed = await this.nftCollectionService.findUnfinished(
-      finalEndBlock,
-      this.isVip,
-      this.queryLimit,
-    );
+    const unprocessed =
+      await this.nftCollectionService.findUnfinishedForwardFlow(
+        finalEndBlock,
+        this.isVip,
+        this.queryLimit,
+      );
 
     if (!unprocessed || unprocessed.length === 0) {
       this.logger.log(
@@ -109,7 +121,7 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
 
     const processed = [];
 
-    await this.nftCollectionService.markAsProcessing(unprocessed);
+    await this.nftCollectionService.markAsProcessingForward(unprocessed);
 
     for (const unprocessedCollection of unprocessed) {
       this.logger.log(
@@ -165,11 +177,125 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
     }
 
     // Mark this collection
-    await this.nftCollectionService.markAsProcessed(processed);
+    await this.nftCollectionService.markAsProcessedForwardFlow(processed);
 
     // this.logger.log(
     //   `[CRON Collection ${unprocessedCollection.contractAddress}] Successfully processed collection to block ${endBlock}`,
     // );
+    this.isProcessing = false;
+    this.skippingCounter = 0;
+  }
+
+  /**
+   * #1. check if there is any collection not finished yet (lastProcessedBlock < currentBlock)
+   * #2. split to tasks and send to queue
+   * #3. save tasks to DB
+   * #4. mark collection as processed
+   */
+  @Cron('*/2 * * * * *')
+  public async checkBackwardCollection() {
+    if (this.source.toLowerCase() !== 'archive') {
+      return;
+    }
+
+    // Forward flow
+    if (this.isProcessing) {
+      if (
+        this.skippingCounter <
+        Number(this.configService.get('skippingCounterLimit'))
+      ) {
+        this.skippingCounter++;
+        this.logger.log(
+          `[CRON Transfer Task] Task is in process, skipping (${this.skippingCounter}) ...`,
+        );
+      } else {
+        // when the counter reaches the limit, restart the pod.
+        this.logger.log(
+          `[CRON Transfer Task] Task skipping counter reached its limit. The process is not responsive, restarting...`,
+        );
+        Utils.shutdown();
+      }
+
+      return;
+    }
+
+    this.isProcessing = true;
+
+    let finalEndBlock = this.stopSendBlock;
+
+    const unprocessed =
+      await this.nftCollectionService.findUnfinishedBackwardFlow(
+        finalEndBlock,
+        this.isVip,
+        this.queryLimit,
+      );
+
+    if (!unprocessed || unprocessed.length === 0) {
+      this.logger.log(
+        "[CRON Task] Didn't find unprocessed blocks. Skipping iteration",
+      );
+      this.isProcessing = false;
+      return;
+    }
+    this.logger.log(
+      `[Media Producer] Got ${unprocessed.length} to process || Query limit: ${this.queryLimit}`,
+    );
+
+    const processed = [];
+
+    await this.nftCollectionService.markAsProcessingBackward(unprocessed);
+
+    for (const unprocessedCollection of unprocessed) {
+      this.logger.log(
+        `[CRON Collection ${unprocessedCollection.contractAddress}] Find Unfinished collection. Already processed to ${unprocessedCollection.firstProcessedBlock}. Current configured end block: ${finalEndBlock}`,
+      );
+
+      // Prepare tasks
+      const startBlock = R.is(Number, unprocessedCollection.firstProcessedBlock)
+        ? unprocessedCollection.firstProcessedBlock - 1
+        : unprocessedCollection.createdAtBlock;
+      let endBlock = startBlock - this.blockInterval * this.messageNum;
+      endBlock = endBlock <= finalEndBlock ? finalEndBlock : endBlock;
+      const tasks = this.eventlySpaceByStep(
+        unprocessedCollection.contractAddress,
+        unprocessedCollection.tokenType,
+        endBlock,
+        startBlock,
+        this.blockInterval,
+      );
+      this.logger.log(
+        `[CRON Collection ${unprocessedCollection.contractAddress}] Generated ${tasks.length} tasks between block [${endBlock} - ${startBlock}] with block interval ${this.blockInterval}`,
+      );
+
+      // Prepare queue messages and sent as batch
+      if (tasks.length > 0) {
+        const messages: Message<QueueMessageBody>[] = tasks.map((task) => {
+          const id = `${unprocessedCollection.contractAddress}-${task.endBlock}-${task.startBlock}`;
+          return {
+            id,
+            body: task,
+            groupId: uuidv4(),
+            deduplicationId: id,
+          };
+        });
+        const queueResults = await this.sendMessage(messages);
+
+        processed.push({
+          contractAddress: unprocessedCollection.contractAddress,
+          firstProcessedBlock: unprocessedCollection.createdAtBlock,
+          lastProcessedBlock: endBlock,
+          isFinished: endBlock === finalEndBlock,
+        });
+
+        this.logger.log(
+          `[CRON Collection ${unprocessedCollection.contractAddress}] Successfully sent ${queueResults.length} messages for collection`,
+        );
+      }
+    }
+
+    // Mark this collection
+    await this.nftCollectionService.markAsProcessedBackwardFlow(processed);
+
     this.isProcessing = false;
     this.skippingCounter = 0;
   }
@@ -181,7 +307,12 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
    */
   @Cron(new Date(Date.now() + 10 * 1000))
   public async resetIsprocessing() {
-    const expiredAddresses = await this.nftCollectionService.findExpiredOnes();
+    if (this.source.toLowerCase() !== 'monitor') {
+      return;
+    }
+
+    const expiredAddresses =
+      await this.nftCollectionService.findExpiredOnesForward();
     if (!expiredAddresses || expiredAddresses.length === 0) {
       return;
     }
@@ -189,7 +320,30 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
     this.logger.log(
       `[CRON Rest] Reset isProcessing for ${expiredAddresses.length} collections`,
     );
-    await this.nftCollectionService.resetExpiredOnes(expiredAddresses);
+    await this.nftCollectionService.resetExpiredOnesForward(expiredAddresses);
+  }
+
+  /**
+   * [Only for VIP] Reset isProcessing to false for expired collections
+   * #1. find all expired sendings
+   * TODO: consider to remove the isProcessing flag
+   */
+  @Cron(new Date(Date.now() + 10 * 1000))
+  public async resetIsprocessingBackward() {
+    if (this.source.toLowerCase() !== 'archive') {
+      return;
+    }
+
+    const expiredAddresses =
+      await this.nftCollectionService.findExpiredOnesBackward();
+    if (!expiredAddresses || expiredAddresses.length === 0) {
+      return;
+    }
+
+    this.logger.log(
+      `[CRON Rest] Reset isProcessing for ${expiredAddresses.length} collections`,
+    );
+    await this.nftCollectionService.resetExpiredOnesBackward(expiredAddresses);
   }
 
   /**
@@ -199,9 +353,14 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
    * #4. delete task as processed
    */
   @Cron(CronExpression.EVERY_5_SECONDS)
-  public async checkCollectionTask() {
+  public async checkCollectionTaskForward() {
+    if (this.source.toLowerCase() !== 'monitor') {
+      return;
+    }
+
     // Check if there is any unprocessed collection
-    const unprocessed = await this.nftCollectionTaskService.findSplitOne();
+    const unprocessed =
+      await this.nftCollectionTaskService.findSplitOneForward();
     if (!unprocessed) {
       this.logger.log(
         "[CRON Task] Didn't find blocks for splitting. Skipping iteration",
@@ -217,6 +376,7 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
       unprocessed.startBlock === unprocessed.endBlock ||
       unprocessed.endBlock - unprocessed.startBlock === 1;
     // Prepare tasks
+
     const tasks = this.eventlySpaceByCardinality(
       unprocessed.contractAddress,
       unprocessed.tokenType,
@@ -228,6 +388,68 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
     // Prepare queue messages and sent as batch
     const messages: Message<QueueMessageBody>[] = tasks.map((task) => {
       const id = `${unprocessed.contractAddress}-${task.startBlock}-${task.endBlock}`;
+      return {
+        id,
+        body: task,
+        groupId: uuidv4(),
+        deduplicationId: id,
+      };
+    });
+
+    const queueResults = await this.sendMessage(messages);
+    this.logger.log(
+      `[CRON Task] Successfully sent ${queueResults.length} messages for collection ${unprocessed.contractAddress}`,
+    );
+
+    // Mark this collection
+    await this.nftCollectionTaskService.deleteOne(unprocessed.messageId);
+    this.logger.log(
+      `[CRON Task] Successfully deleted task ${unprocessed.contractAddress} from block ${unprocessed.startBlock} to ${unprocessed.endBlock}`,
+    );
+  }
+
+  /**
+   * #1. check if there is any task need to be splited
+   * #2. split to 2 tasks and send to queue
+   * #3. save 2 new tasks to DB
+   * #4. delete task as processed
+   */
+  @Cron(CronExpression.EVERY_5_SECONDS)
+  public async checkCollectionTaskBackward() {
+    if (this.source.toLowerCase() !== 'archive') {
+      return;
+    }
+
+    // Check if there is any unprocessed collection
+    const unprocessed =
+      await this.nftCollectionTaskService.findSplitOneBackward();
+    if (!unprocessed) {
+      this.logger.log(
+        "[CRON Task] Didn't find blocks for splitting. Skipping iteration",
+      );
+
+      return;
+    }
+    this.logger.log(
+      `[CRON Task] Find one task need to be splited: ${unprocessed.contractAddress} from block ${unprocessed.startBlock} to ${unprocessed.endBlock}`,
+    );
+
+    const isSingleTask =
+      unprocessed.startBlock === unprocessed.endBlock ||
+      unprocessed.endBlock - unprocessed.startBlock === 1;
+    // Prepare tasks
+
+    const tasks = this.eventlySpaceByCardinality(
+      unprocessed.contractAddress,
+      unprocessed.tokenType,
+      unprocessed.endBlock,
+      unprocessed.startBlock,
+      isSingleTask ? 1 : 2,
+    );
+
+    // Prepare queue messages and sent as batch
+    const messages: Message<QueueMessageBody>[] = tasks.map((task) => {
+      const id = `${unprocessed.contractAddress}-${task.endBlock}-${task.startBlock}`;
       return {
         id,
         body: task,
