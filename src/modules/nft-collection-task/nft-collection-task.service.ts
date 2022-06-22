@@ -39,7 +39,7 @@ export class NFTCollectionTaskService {
   public async findSplitOne(source: string) {
     return await this.nftCollectionTaskModel.findOne({
       status: 'split',
-      source: source === 'MONITOR' ? { $in: [null, 'MONITOR'] } : 'ARCHIVE',
+      source: source,
     });
   }
 

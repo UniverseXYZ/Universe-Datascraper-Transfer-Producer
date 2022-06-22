@@ -46,9 +46,9 @@ export class NFTCollectionService {
   public async findExpiredOnes(source: string): Promise<string[]> {
     const results = await this.nftCollectionModel.find(
       {
+        source,
         sentAt: { $lt: new Date(Date.now() - 60 * 1000) },
         isProcessing: true,
-        source: source === 'MONITOR' ? { $in: [null, 'MONITOR'] } : 'ARCHIVE',
       },
       {
         contractAddress: 1,
