@@ -21,11 +21,17 @@ export class NFTCollectionService {
     limit: number,
     source: string,
   ) {
+    const sourceVipQuery = isVip ? {
+      vip: true,
+    } : {
+      source,
+      vip: { $in: [null, false] },
+    }
+    
     return await this.nftCollectionModel
       .find(
         {
-          source,
-          vip: isVip ? true : { $in: [null, false] },
+          ...sourceVipQuery,
           isProcessing: { $in: [null, false] },
           createdAtBlock: { $exists: true },
           $or: [

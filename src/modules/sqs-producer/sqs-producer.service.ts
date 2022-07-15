@@ -45,14 +45,15 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
     this.queryLimit = Number(this.configService.get('query_limit')) || 1;
     this.source = this.configService.get('source');
 
-    if (this.source !== 'ARCHIVE' && this.source !== 'MONITOR') {
-      throw new Error(`SOURCE has invalid value(${this.source})`);
-    }
-
     const queueUrl = this.configService.get('aws.queueUrl');
     if (queueUrl.includes('-vip')) {
       this.isVip = true;
     }
+
+    if (!this.isVip && this.source !== 'ARCHIVE' && this.source !== 'MONITOR') {
+      throw new Error(`SOURCE has invalid value(${this.source})`);
+    }
+
   }
 
   public onModuleInit() {
