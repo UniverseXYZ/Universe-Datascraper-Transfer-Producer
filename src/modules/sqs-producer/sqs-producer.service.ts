@@ -108,6 +108,7 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
         "[CRON Task] Didn't find unprocessed blocks. Skipping iteration",
       );
       this.isProcessing = false;
+      this.skippingCounter = 0;
       return;
     }
     this.logger.log(
