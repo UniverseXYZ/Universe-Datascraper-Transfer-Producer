@@ -67,9 +67,6 @@ export class EthereumService {
 
   public async getBlockNum() {
     try {
-      if (this.providerIndex === 0) {
-        throw new Error();
-      }
       return this.ether.getBlockNumber();
     } catch(err) {
       this.logger.log("Failed to get block number.")
