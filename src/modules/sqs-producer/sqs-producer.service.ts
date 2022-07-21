@@ -70,6 +70,11 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
    */
   @Cron('*/2 * * * * *')
   public async checkCollection() {
+    if (!this.ethereumService.ether) {
+      this.logger.warn(`[CRON Transfer Task] Provider isn't available. Skipping this iteration.`);
+      return;
+    }
+
     if (this.isProcessing) {
       if (
         this.skippingCounter <
