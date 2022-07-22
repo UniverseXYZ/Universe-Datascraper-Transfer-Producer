@@ -202,6 +202,7 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
   public async resetIsprocessing() {
     const expiredAddresses = await this.nftCollectionService.findExpiredOnes(
       this.source,
+      this.isVip
     );
     if (!expiredAddresses || expiredAddresses.length === 0) {
       return;
@@ -224,6 +225,7 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
     // Check if there is any unprocessed collection
     const unprocessed = await this.nftCollectionTaskService.findSplitOne(
       this.source,
+      this.isVip
     );
     if (!unprocessed) {
       this.logger.log(

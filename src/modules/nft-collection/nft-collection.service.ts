@@ -43,10 +43,11 @@ export class NFTCollectionService {
       .lean();
   }
 
-  public async findExpiredOnes(source: string): Promise<string[]> {
+  public async findExpiredOnes(source: string, vip: boolean): Promise<string[]> {
     const results = await this.nftCollectionModel.find(
       {
         source,
+        vip: vip ? true : { $in: [null, false] },
         sentAt: { $lt: new Date(Date.now() - 60 * 1000) },
         isProcessing: true,
       },

@@ -18,28 +18,11 @@ export class NFTCollectionTaskService {
     private readonly nftCollectionTaskModel: Model<NFTCollectionTaskDocument>,
   ) {}
 
-  async updateNFTCollectionTask(
-    status: CreateNFTCollectionTaskDto,
-  ): Promise<NFTCollectionTask> {
-    return await this.nftCollectionTaskModel.findOneAndUpdate(
-      {
-        messageId: status.messageId,
-      },
-      status,
-      {
-        upsert: true,
-      },
-    );
-  }
-
-  async batchInsert(records: CreateNFTCollectionTaskDto[]) {
-    return await this.nftCollectionTaskModel.insertMany(records);
-  }
-
-  public async findSplitOne(source: string) {
+  public async findSplitOne(source: string, vip: boolean) {
     return await this.nftCollectionTaskModel.findOne({
       status: 'split',
       source: source,
+      vip: vip ? true: { $in: [null, false] }
     });
   }
 
