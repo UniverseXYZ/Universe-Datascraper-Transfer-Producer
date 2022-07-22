@@ -187,6 +187,10 @@ export class SqsProducerService implements OnModuleInit, SqsProducerHandler {
     } catch(err) {
       this.logger.error("Unexpected error during processing:");
       this.logger.error(err);
+
+      if (err?.error?.reason === 'timeout' || err?.error?.code === 429 || err?.error?.code === 'TIMEOUT') {
+        return await this.ethereumService.connectToProvider(() => {});
+      }
     }
 
     this.isProcessing = false;
